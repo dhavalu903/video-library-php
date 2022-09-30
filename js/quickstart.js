@@ -1,0 +1,419 @@
+var activeRoom;
+var previewTracks;
+var identity;
+var roomName;
+
+function attachTracks(tracks, container) {
+  tracks.forEach(function(track) {
+	  
+    container.appendChild(track.attach());
+  });
+}
+
+function attachParticipantTracks(participant, container) {
+  var tracks = Array.from(participant.tracks.values());
+  attachTracks(tracks, container);
+}
+
+function detachTracks(tracks) {
+  tracks.forEach(function(track) {
+    track.detach().forEach(function(detachedElement) {
+      detachedElement.remove();
+    });
+  });
+}
+
+function detachParticipantTracks(participant) {
+  var tracks = Array.from(participant.tracks.values());
+  detachTracks(tracks);
+}
+
+// Check for WebRTC
+if (!navigator.webkitGetUserMedia && !navigator.mozGetUserMedia) {
+  alert('WebRTC is not available in your browser.');
+}
+
+// When we are about to transition away from this page, disconnect
+// from the room, if joined.
+window.addEventListener('beforeunload', leaveRoomIfJoined);
+
+  document.getElementById('room-controls').style.display = 'block';
+
+  // Bind button to join room
+  document.getElementById('button-join').onclick = function () {
+    roomName = document.getElementById('room-name').value;
+	
+	$.ajax({
+		
+		type:'post',
+		data:{'roomName':roomName},
+		url:'token.php',
+		success:function(result)
+		{
+			var data = JSON.parse(result);
+			identity = data.identity;
+			
+			if (roomName) {
+			  log("Joining room '" + roomName + "'...");
+
+			  var connectOptions = { name: roomName, logLevel: 'debug' };
+			  if (previewTracks) {
+				connectOptions.tracks = previewTracks;
+			  }
+
+			  Twilio.Video.connect(data.token, connectOptions).then(roomJoined, function(error) {
+				log('Could not connect to Twilio: ' + error.message);
+			  });
+			} else {
+			  alert('Please enter a room name.');
+			}
+		}
+		
+	});
+	
+    
+  };
+
+  // Bind button to leave room
+  document.getElementById('button-leave').onclick = function () {
+    log('Leaving room...');
+    activeRoom.disconnect();
+  };
+
+
+function roomJoined(room) {
+
+    //update_video_call_status(user_id, call_status = 1, booking_id);
+
+    activeRoom = room;
+    // console.log("Joined as '" + identity + "'");
+    //log("Joined as '" + identity + "'");
+
+    document.getElementById('button-join').style.display = 'none';
+    document.getElementById('button-leave').style.display = 'inline-block';
+
+    if (canScreenShare()) {
+        document.getElementById('button-share-screen').style.display = 'inline';
+    }
+
+    const localParticipant = room.localParticipant;
+    console.log('Connected to the Room as LocalParticipant "${localParticipant.identity}"');
+    
+    // Log any Participants already connected to the Room
+    room.participants.forEach(participant => {
+        console.log('Participant "${participant.identity}" is connected to the Room');
+        log("connected to room");
+    });
+
+    // Log new Participants as they connect to the Room
+    room.once('participantConnected', participant => {
+        console.log('Participant "${participant.identity}" has connected to the Room');
+    });
+
+    // Log Participants as they disconnect from the Room
+    room.once('participantDisconnected', participant => {
+        console.log('Participant "${participant.identity}" has disconnected from the Room');
+        document.getElementById(participant.sid).remove();
+        screenTrack = null;
+    });
+
+    // Attach the Participant's Media to a <div> element.
+    room.on('participantConnected', participant => {
+        console.log('Participant "${participant.identity}" connected');
+
+        if (!document.getElementById(participant.sid)) {
+            var div = document.createElement('div');
+            div.id = participant.sid;
+            div.classList.add("parent-video-main");
+            document.getElementById('remote-media').appendChild(div);
+        }
+
+        participant.tracks.forEach(publication => {
+            if (publication.isSubscribed) {
+                document.getElementById(participant.sid).appendChild(publication.track.attach());
+            }
+        });
+
+        participant.on('trackSubscribed', track => {
+            var element = track.attach();
+            element.id = track.name;
+            element.classList.add("video-main");
+            document.getElementById(participant.sid).appendChild(element);
+            //document.getElementById(participant.sid).appendChild(track.attach());
+        });
+
+
+
+        participant.on('trackUnsubscribed', publication => {
+            //alert('RemoteParticipant ${participant.identity} unpublished a RemoteTrack: ${publication}');
+            //alert(participant.sid);
+            var shared_screen_id = $('#' + participant.sid).children().last().attr('id');
+            document.getElementById(shared_screen_id).remove();
+            console.log('RemoteParticipant ${participant.identity} unpublished a RemoteTrack: ${publication}');
+        });
+
+        participant.on('trackPublished', publication => {
+            //alert("Test-1"); 
+            $(".share-screen-option").addClass("disable-click");
+            $(".video-main").hide();
+        });
+
+        participant.on('trackUnpublished', publication => {
+            //alert("Test-2"); 
+            $(".share-screen-option").removeClass("disable-click");
+            var shared_screen_id = $('#' + participant.sid).children().last().attr('id');
+            $('#' + shared_screen_id).show();
+        });
+
+
+
+
+    });
+
+    room.participants.forEach(participant => {
+        if (!document.getElementById(participant.sid)) {
+            var div = document.createElement('div');
+            div.id = participant.sid;
+            div.classList.add("parent-video-main");
+            document.getElementById('remote-media').appendChild(div);
+        }
+
+        participant.tracks.forEach(publication => {
+            if (publication.track) {
+                document.getElementById(participant.sid).appendChild(publication.track.attach());
+            }
+        });
+
+        participant.on('trackSubscribed', track => {
+            var element = track.attach();
+            element.id = track.name;
+            element.classList.add("video-main");
+            document.getElementById(participant.sid).appendChild(element);
+            //document.getElementById(participant.sid).appendChild(track.attach());
+        });
+
+
+
+        participant.on('trackUnsubscribed', publication => {
+            //alert('RemoteParticipant ${participant.identity} unpublished a RemoteTrack: ${publication}');
+            //alert(participant.sid);
+            var shared_screen_id = $('#' + participant.sid).children().last().attr('id');
+            document.getElementById(shared_screen_id).remove();
+            console.log('RemoteParticipant ${participant.identity} unpublished a RemoteTrack: ${publication}');
+        });
+
+        participant.on('trackPublished', publication => {
+            //alert("Test-3"); 
+            $(".share-screen-option").addClass("disable-click");
+            $(".video-main").hide();
+        });
+
+        participant.on('trackUnpublished', publication => {
+            //alert("Test-4"); 
+            $(".share-screen-option").removeClass("disable-click");
+            var shared_screen_id = $('#' + participant.sid).children().last().attr('id');
+            $('#' + shared_screen_id).show();
+        });
+
+
+    });
+
+    // Listen to the "beforeunload" event on window to leave the Room
+    // when the tab/browser is being closed.
+    window.addEventListener('beforeunload', () => room.disconnect());
+
+    // iOS Safari does not emit the "beforeunload" event on window.
+    // Use "pagehide" instead.
+    window.addEventListener('pagehide', () => room.disconnect());
+
+    document.getElementById('button-leave').onclick = function() {
+
+       // update_video_call_status(user_id, call_status = 0, booking_id);
+
+        log('Leaving room...');
+        screenTrack = null;
+        room.disconnect();
+
+        $(".modal-disconnect-call").modal('hide');
+        var ap_redirect_page = $("#ap_redirect_page").val();
+        window.location.href = ap_redirect_page + ".php";
+
+    }
+
+
+    room.on('disconnected', function() {
+        log('Left');
+        screenTrack = null;
+        room.disconnect();
+        activeRoom = null;
+
+        //update_video_call_status(user_id, call_status = 0, booking_id);
+        document.getElementById('button-join').style.display = 'none';
+        document.getElementById('button-leave').style.display = 'none';
+    });
+
+}
+
+function isFirefox() {
+    var mediaSourceSupport = !!navigator.mediaDevices.getSupportedConstraints().mediaSource;
+    var matchData = navigator.userAgent.match(/Firefox\/(\d+)/);
+    var firefoxVersion = 0;
+    if (matchData && matchData[1]) {
+        firefoxVersion = parseInt(matchData[1], 10);
+    }
+    return mediaSourceSupport && firefoxVersion >= 52;
+}
+
+function isChrome() {
+    return 'chrome' in window;
+}
+
+function canScreenShare() {
+    return isFirefox() || isChrome();
+}
+
+document.getElementById('button-mute-audio').onclick = function() {
+
+     
+
+    activeRoom.localParticipant.audioTracks.forEach(publication => {
+        console.log(publication);
+        publication.track.disable();
+        $("#button-mute-audio").hide();
+        $("#button-unmute-audio").show();
+
+       
+        
+
+    });
+};
+
+document.getElementById('button-unmute-audio').onclick = function() {
+    
+    activeRoom.localParticipant.audioTracks.forEach(publication => {
+        
+        console.log(publication);
+        publication.track.enable();
+        $("#button-mute-audio").show();
+        $("#button-unmute-audio").hide();
+    });
+};
+
+document.getElementById('button-mute-video').onclick = function() {
+
+    // console.log("Done");
+
+    // disabling local tracks start
+
+    var localTracksPromise = previewTracks ? Promise.resolve(previewTracks): Twilio.Video.createLocalTracks();
+
+    localTracksPromise.then(function(tracks) {
+        previewTracks = tracks;
+        //alert(previewTracks);
+        var previewContainer = document.getElementById('local-media');
+        detachTracks(tracks, previewContainer);
+       
+      });
+
+
+    // disabling local tracks end
+
+    activeRoom.localParticipant.videoTracks.forEach(publication => {
+        console.log(publication);
+        publication.track.disable();
+        $("#button-mute-video").hide();
+        $("#button-unmute-video").show();
+
+    });
+
+
+
+        
+};
+
+document.getElementById('button-unmute-video').onclick = function() {
+
+    // console.log("Done");
+
+    // unmute video local start
+
+        var localTracksPromise = previewTracks
+        ? Promise.resolve(previewTracks)
+        : Twilio.Video.createLocalTracks();
+
+      localTracksPromise.then(function(tracks) {
+        previewTracks = tracks;
+        var previewContainer = document.getElementById('local-media');
+        if (!previewContainer.querySelector('video')) {
+          attachTracks(tracks, previewContainer);
+        }
+      }, function(error) {
+        console.error('Unable to access local media', error);
+        log('Unable to access Camera and Microphone');
+      });
+
+    // unmute video local end 
+
+    activeRoom.localParticipant.videoTracks.forEach(publication => {
+        console.log(publication);
+        publication.track.enable();
+        $("#button-mute-video").show();
+        $("#button-unmute-video").hide();
+    });
+};
+
+function log(message) {
+    // $("#log").html('');
+    // var logDiv = document.getElementById('log');
+    // logDiv.innerHTML += '<p>&gt;&nbsp;' + message + '</p>';
+    // logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+//  Local video preview
+document.getElementById('button-preview').onclick = function() {
+  var localTracksPromise = previewTracks
+    ? Promise.resolve(previewTracks)
+    : Twilio.Video.createLocalTracks();
+
+  localTracksPromise.then(function(tracks) {
+    previewTracks = tracks;
+    var previewContainer = document.getElementById('local-media');
+    if (!previewContainer.querySelector('video')) {
+      attachTracks(tracks, previewContainer);
+    }
+  }, function(error) {
+    console.error('Unable to access local media', error);
+    log('Unable to access Camera and Microphone');
+  });
+};
+
+// Activity log
+function log(message) {
+  var logDiv = document.getElementById('log');
+  logDiv.innerHTML += '<p>&gt;&nbsp;' + message + '</p>';
+  logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+function leaveRoomIfJoined() {
+  if (activeRoom) {
+    activeRoom.disconnect();
+  }
+}
+
+
+// $(document).ready(function(){
+//     var localTracksPromise = previewTracks
+//     ? Promise.resolve(previewTracks)
+//     : Twilio.Video.createLocalTracks();
+
+//   localTracksPromise.then(function(tracks) {
+//     previewTracks = tracks;
+//     var previewContainer = document.getElementById('local-media');
+//     if (!previewContainer.querySelector('video')) {
+//       attachTracks(tracks, previewContainer);
+//     }
+//   }, function(error) {
+//     console.error('Unable to access local media', error);
+//     log('Unable to access Camera and Microphone');
+//   });
+// });

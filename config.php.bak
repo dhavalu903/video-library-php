@@ -1,0 +1,6 @@
+
+<?php
+// see README.md for an explanation of these config params
+$TWILIO_ACCOUNT_SID = 'AC98b0f51666a32c3663068796d2978d8e';
+$TWILIO_API_KEY = 'SK3d0bd985c0c664d5b7cb9df2d85394fb';
+$TWILIO_API_SECRET = 'b8bJ5lbHutTvoP8Fc1gM1lI7grzQg7g6';
